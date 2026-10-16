@@ -93,8 +93,7 @@ input[type=date]::-webkit-datetime-edit{padding:0}
 <div id="p-log">
 <div class="card ringcard"><div id="ring"></div><div><div class="sum" id="ringT" style="margin-top:0"></div><div class="sm" id="ringS"></div><div class="chips" style="margin-top:8px"><button type="button" class="chip" id="gm" aria-label="Lower weekly goal">− goal</button><button type="button" class="chip" id="gp" aria-label="Raise weekly goal">+ goal</button></div></div></div>
 <div class="card"><div class="row" style="align-items:center;justify-content:space-between;margin-bottom:10px"><h2 style="margin:0">Steps</h2><button type="button" class="chip" id="stLog" style="padding:4px 12px;font-size:12px">+ Log steps</button></div>
- <div class="sum" id="stT" style="margin-top:0"></div><div class="bar"><i id="stBar"></i></div><div class="sm" id="stS"></div>
- <label for="stGoal">Daily step goal</label><input type="number" id="stGoal" inputmode="numeric" step="500" min="500"></div>
+ <div class="sum" id="stT" style="margin-top:0;font-size:26px"></div></div>
 <div class="card"><div class="row" style="align-items:center;justify-content:space-between;margin-bottom:10px"><h2 style="margin:0">Watchlist</h2><button type="button" class="chip" id="wlEdit" style="padding:4px 12px;font-size:12px">Edit</button></div><div id="wlpick" hidden></div><div id="wl"></div></div>
 <div class="card stats" id="stats"></div>
 <div class="card"><h2>Calendar</h2>
@@ -117,6 +116,7 @@ input[type=date]::-webkit-datetime-edit{padding:0}
  <div class="card"><h2>How the score works</h2><div class="sm">Fitness index = a 0–100 blend of four parts: <b>Consistency</b> (30%: workout days per week vs your weekly goal, last 4 weeks), <b>Strength progress</b> (30%: how far your best recent lift, hold, or rep count is above your first session, averaged across movements with 2+ sessions), <b>Split balance</b> (20%: how many of 6 muscle groups you hit and how even upper vs lower days are), and <b>Activity</b> (20%: active minutes per week vs 150, plus how often you hit your step goal). Parts with no data yet are left out. This is a motivation tool, not a medical measure.</div></div>
 </div>
 <div id="p-set" hidden><div class="card"><h2>Workout templates</h2><div id="tpls"></div></div>
+<div class="card"><h2>Daily step goal</h2><div class="sm">Used for your Fitness index and how often you hit your goal.</div><label for="stGoal">Steps per day</label><input type="number" id="stGoal" inputmode="numeric" step="500" min="500"></div>
 <div class="card"><h2>Ticker symbols</h2><div class="sm">Each movement gets its own symbol. Tap one to change it (up to 5 letters or numbers).</div><div id="symlist"></div></div>
 <div class="card"><h2>Import data</h2>
  <div class="sm">Zepp workouts (.tcx), spreadsheets (.csv), Apple Health (export.xml), or a backup (.json). You'll see a preview before anything is added.</div>
@@ -668,7 +668,7 @@ function renderPortfolio(){
   var today=ds(new Date()),cur=scoreAt(today),pts=[];
   for(var i=11;i>=0;i--){var d=addDays(today,-7*i),r=scoreAt(d);if(r.score!==null)pts.push({t:T(d),v:r.score})}
   if(cur.score===null){$('pf-head').innerHTML='<div class="sym">FIT<span>Fitness index</span></div><div class="empty" style="margin-top:8px">Log a few workouts and your portfolio score builds here.</div>';['pf-comp','pf-hold','pf-split','pf-work'].forEach(function(id){$(id).innerHTML=''});return}
-  $('pf-head').innerHTML=head('FIT','Fitness index',cur.score,' /100',pts,false)+lineChart(pts,false,'Weekly fitness index, 0–100 (higher is better)',false);
+  $('pf-head').innerHTML=head('FIT','Fitness index',cur.score,' /100',pts,false)+lineChart(pts,'lin','Weekly fitness index, 0–100 (higher is better) · dotted line = overall trend',false);
   var N={cons:'Consistency',str:'Strength progress',bal:'Split balance',act:'Activity'};
   $('pf-comp').innerHTML=['cons','str','bal','act'].map(function(k){var c=cur.comp[k];
     return '<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:baseline"><b>'+N[k]+'</b><b class="mono">'+(c.v===null?'—':c.v)+'</b></div><div class="bar" style="margin:6px 0"><i style="width:'+(c.v||0)+'%"></i></div><div class="sm">'+esc(c.note)+'</div></div>'}).join('');
@@ -751,21 +751,35 @@ function head(sym,name,val,unit,pts,inv){
   return '<div class="sym">'+esc(sym)+'<span>'+esc(name)+'</span></div><div class="price">'+val+'<small>'+unit+'</small></div>'
    +'<div class="chg '+(c.up?'up':'dn')+'">'+(c.sign>=0?'▲':'▼')+' '+(c.d>=0?'+':'')+n1(c.d)+' ('+(c.p>=0?'+':'')+c.p.toFixed(1)+'%) <span>'+range+'</span></div>';
 }
-function lineChart(pts,avg,note,inv){
+function lineChart(pts,mode,note,inv){
   if(pts.length<2)return '<div class="empty">Not enough data in this range yet.</div>';
-  if(avg)pts.forEach(function(p){var s=pts.filter(function(q){return q.t<=p.t&&q.t>p.t-7*864e5});p.a=s.reduce(function(a,q){return a+q.v},0)/s.length});
-  var ys=[];pts.forEach(function(p){ys.push(p.v);if(avg)ys.push(p.a)});
+  if(mode===true)mode='avg';
+  var tr=[];
+  if(mode==='avg'){
+    var D=864e5,t00=pts[0].t,n=Math.round((pts[pts.length-1].t-t00)/D),by={},lastA=null;
+    pts.forEach(function(p){var i=Math.round((p.t-t00)/D);(by[i]=by[i]||[]).push(p.v)});
+    for(var i=0;i<=n;i++){var vs=[];for(var j=Math.max(0,i-6);j<=i;j++)if(by[j])vs=vs.concat(by[j]);
+      if(vs.length)lastA=vs.reduce(function(a,b){return a+b},0)/vs.length;
+      if(lastA!==null)tr.push({t:t00+i*D,v:lastA})}
+  }else if(mode==='lin'){
+    var N=pts.length,sx=0,sy=0,sxy=0,sxx=0,a0=pts[0].t;
+    pts.forEach(function(p){var x=(p.t-a0)/864e5;sx+=x;sy+=p.v;sxy+=x*p.v;sxx+=x*x});
+    var den=N*sxx-sx*sx;
+    if(den){var m=(N*sxy-sx*sy)/den,c0=(sy-m*sx)/N;tr=[{t:pts[0].t,v:c0},{t:pts[N-1].t,v:c0+m*(pts[N-1].t-a0)/864e5}]}
+  }
+  var ys=pts.map(function(p){return p.v}).concat(tr.map(function(p){return p.v}));
   var lo=Math.min.apply(null,ys),hi=Math.max.apply(null,ys),pd=(hi-lo)*.15||1;lo-=pd;hi+=pd;
   var W=340,H=180,L=38,R=8,Tp=8,B=22,t0=pts[0].t,t1=pts[pts.length-1].t,dc=(hi-lo)>8?0:1,id='g'+(++gid);
   function X(t){return L+(t1===t0?0:(t-t0)/(t1-t0))*(W-L-R)}
   function Y(v){return Tp+(1-(v-lo)/(hi-lo))*(H-Tp-B)}
   var col=chgOf(pts,inv).up?'var(--up)':'var(--dn)';
-  var line=pts.map(function(p,i){return(i?'L':'M')+X(p.t).toFixed(1)+' '+Y(avg?p.a:p.v).toFixed(1)}).join('');
-  var area=line+' L'+X(t1).toFixed(1)+' '+(H-B)+' L'+X(t0).toFixed(1)+' '+(H-B)+' Z';
+  var path=function(a){return a.map(function(p,i){return(i?'L':'M')+X(p.t).toFixed(1)+' '+Y(p.v).toFixed(1)}).join('')};
+  var line=path(pts),area=line+' L'+X(t1).toFixed(1)+' '+(H-B)+' L'+X(t0).toFixed(1)+' '+(H-B)+' Z';
   var grid=[0,1,2].map(function(i){var v=lo+(hi-lo)*i/2,y=Y(v).toFixed(1);return '<line x1="'+L+'" x2="'+(W-R)+'" y1="'+y+'" y2="'+y+'" stroke="var(--bd)" stroke-dasharray="2 4"/><text x="0" y="'+(+y+3)+'" font-size="10" fill="var(--mut)">'+v.toFixed(dc)+'</text>'}).join('');
-  var dots=pts.map(function(p,i){var last=i===pts.length-1;return '<circle cx="'+X(p.t).toFixed(1)+'" cy="'+Y(p.v).toFixed(1)+'" r="'+(last?4:2.4)+'" fill="'+(avg&&!last?'var(--mut)':col)+'" opacity="'+(avg&&!last?.6:1)+'"/>'}).join('');
+  var dots=pts.map(function(p,i){return '<circle cx="'+X(p.t).toFixed(1)+'" cy="'+Y(p.v).toFixed(1)+'" r="'+(i===pts.length-1?4:2.4)+'" fill="'+col+'"/>'}).join('');
+  var tl=tr.length>1?'<path d="'+path(tr)+'" fill="none" stroke="var(--tx)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="0.1 6" opacity=".9"/>':'';
   return '<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Trend chart"><defs><linearGradient id="'+id+'" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:'+col+';stop-opacity:.35"/><stop offset="1" style="stop-color:'+col+';stop-opacity:0"/></linearGradient></defs>'
-   +grid+'<path d="'+area+'" fill="url(#'+id+')"/><path d="'+line+'" fill="none" stroke="'+col+'" stroke-width="2.4" stroke-linejoin="round"/>'+dots
+   +grid+'<path d="'+area+'" fill="url(#'+id+')"/><path d="'+line+'" fill="none" stroke="'+col+'" stroke-width="2.4" stroke-linejoin="round"/>'+tl+dots
    +'<text x="'+L+'" y="'+(H-6)+'" font-size="10" fill="var(--mut)">'+nice(ds(new Date(t0)))+'</text>'
    +'<text x="'+(W-R)+'" y="'+(H-6)+'" font-size="10" text-anchor="end" fill="var(--mut)">'+nice(ds(new Date(t1)))+'</text></svg>'
    +'<div class="empty">'+note+'</div>';
@@ -814,23 +828,19 @@ $('wlpick').onclick=function(ev){var id=ev.target.dataset&&ev.target.dataset.w;i
   if(i>=0)cur.splice(i,1);else if(cur.length>=3){toast('Watchlist limit is 3 — remove one first');return}else cur.push(id);
   state.watch=cur.length?cur:['-'];persist();render()};
 function renderSteps(){
-  var pts=stepPts(),map={},now=new Date(),today=ds(now);pts.forEach(function(q){map[ds(new Date(q.t))]=q.v});
-  var g=state.stepGoal||10000,v=map[today]||0,hit=0;
-  for(var i=0;i<7;i++){if((map[ds(new Date(now.getFullYear(),now.getMonth(),now.getDate()-i))]||0)>=g)hit++}
-  $('stT').textContent=v.toLocaleString()+' / '+g.toLocaleString()+' steps today';
-  $('stBar').style.width=Math.min(100,Math.round(v/g*100))+'%';
-  $('stS').textContent=(v>=g?'Goal reached 🎉':(g-v).toLocaleString()+' to go')+' · goal hit '+hit+' of the last 7 days';
-  if(document.activeElement!==$('stGoal'))$('stGoal').value=g;
+  var map={},today=ds(new Date());stepPts().forEach(function(q){map[ds(new Date(q.t))]=q.v});
+  $('stT').textContent=(map[today]||0).toLocaleString()+' steps today';
+  if(document.activeElement!==$('stGoal'))$('stGoal').value=state.stepGoal||10000;
 }
 $('stGoal').onchange=function(){var n=parseInt(this.value);if(n>0){state.stepGoal=n;persist();renderSteps()}else this.value=state.stepGoal||10000};
 $('stLog').onclick=function(){if(f.k!=='steps'||f.id)f=blankF('steps');$('date').value=ds(new Date());saveDraft();drawForm();openSheet()};
 function renderWeight(){
   var all=wtPts(),pts=inR(all);
-  $('wchart').innerHTML=all.length?head('BODYWT','Body weight',n1(all[all.length-1].v),' '+state.unit,pts,true)+rangeChips()+lineChart(pts,true,'Dots: daily weight · Line: 7-day average ('+state.unit+') · green = trending down',true):'<div class="empty">Log your weight to start charting.</div>';
+  $('wchart').innerHTML=all.length?head('BODYWT','Body weight',n1(all[all.length-1].v),' '+state.unit,pts,true)+rangeChips()+lineChart(pts,'avg','Solid line: your exact weigh-ins · Dotted: rolling 7-day average ('+state.unit+'). A day without a weigh-in uses the average of your recent entries · green = trending down',true):'<div class="empty">Log your weight to start charting.</div>';
 }
 function renderWalks(){
   var all=stepPts(),pts=inR(all);
-  $('wk-in').innerHTML=all.length?head('STEPS','Daily steps',all[all.length-1].v.toLocaleString(),'',pts,false)+rangeChips()+lineChart(pts,false,'Steps per day',false):'<div class="empty">Log a walk with steps to start charting.</div>';
+  $('wk-in').innerHTML=all.length?head('STEPS','Daily steps',all[all.length-1].v.toLocaleString(),'',pts,false)+rangeChips()+lineChart(pts,'avg','Solid line: exact steps per day · Dotted: rolling 7-day average',false):'<div class="empty">Log a walk with steps to start charting.</div>';
   var ws=state.log.filter(function(e){return e.k==='walk'}).slice(-15).reverse();
   $('wk-list').innerHTML=ws.length?ws.map(function(e){return '<div class="h" style="cursor:default"><div class="d"><b>'+nice(e.d)+'</b><small>'+sumOf(e)+(e.note?' · '+esc(e.note):'')+'</small></div></div>'}).join(''):'<div class="empty">No walks yet.</div>';
 }
@@ -860,7 +870,7 @@ function renderEx(m){
   var SMx=symMap();var sel='<select id="exsel" style="margin-bottom:10px">'+keys.map(function(k){return '<option value="'+esc(k)+'"'+(k===exSel?' selected':'')+'>'+esc((SMx.sym[k]||'')+' · '+m[k].name)+' ('+m[k].list.length+')</option>'}).join('')+'</select>';
   var h='<div class="card">'+sel+head(symMap().sym[exSel]||ex.name.toUpperCase(),ex.name+' · '+MLAB[mt],n1(all[all.length-1].v),u,pts,false)+rangeChips()
    +'<div class="chips" style="margin:8px 0">'+ms.map(function(x){return '<button type="button" class="chip'+(x===mt?' on':'')+'" data-m="'+x+'">'+MLAB[x]+'</button>'}).join('')+'</div>'
-   +lineChart(pts,false,mt==='e1rm'?'Estimated 1-rep max from your best set each session':MLAB[mt]+' per session'+u,false)+'</div>'
+   +lineChart(pts,'lin',(mt==='e1rm'?'Estimated 1-rep max from your best set each session':MLAB[mt]+' per session'+u)+' · dotted line = overall trend',false)+'</div>'
    +'<div class="card"><h2>Sessions</h2>'+ex.list.slice(-12).reverse().map(function(s){
      return '<div class="h" style="cursor:default"><div class="d"><b>'+nice(s.k)+'</b><small>'+s.sets.map(fs).join(', ')+'</small></div></div>'}).join('')+'</div>';
   $('p-ex').innerHTML=h;
